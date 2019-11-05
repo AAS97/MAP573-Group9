@@ -1,19 +1,25 @@
 ---
-title: "R Notebook"
+title: "Simple Data Regression"
 output: html_notebook
 ---
 
-This is an [R Markdown](http://rmarkdown.rstudio.com) Notebook. When you execute code within the notebook, the results appear beneath the code. 
+Created by Aubry
+Date : 22/10/19
 
-Try executing this chunk by clicking the *Run* button within the chunk or by placing your cursor inside it and pressing *Cmd+Shift+Enter*. 
 
+Load data
 ```{r}
-plot(cars)
+zone1 <- read.csv(file="./data/processed/zoned/zone1.csv", header = TRUE, dec =".", colClasses=c("Date",rep("numeric",25)))
+
 ```
 
-Add a new chunk by clicking the *Insert Chunk* button on the toolbar or by pressing *Cmd+Option+I*.
-
-When you save the notebook, an HTML file containing the code and output will be saved alongside it (click the *Preview* button or press *Cmd+Shift+K* to preview the HTML file). 
-
-The preview shows you a rendered HTML copy of the contents of the editor. Consequently, unlike *Knit*, *Preview* does not run any R code chunks. Instead, the output of the chunk when it was last run in the editor is displayed.
+Discribe data
+```{r}
+dim(zone1)
+summary(zone1[1:4])
+```
+Remarques :
+  1. Data are taken from 2004-01-01 to 2008-07-07
+  2. Total of 1650 rows
+  3. 63 of which are NA -> missing values
 
