@@ -11,3 +11,5 @@ This is a list of tasks to be done, please update as you progress :
 
 Time-series analysis
 link:https://otexts.com/fpp2/components.html
+In R
+link:http://r-statistics.co/Time-Series-Forecasting-With-R.html
