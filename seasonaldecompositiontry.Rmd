@@ -1,0 +1,152 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+This is an [R Markdown](http://rmarkdown.rstudio.com) Notebook. When you execute code within the notebook, the results appear beneath the code. 
+
+Try executing this chunk by clicking the *Run* button within the chunk or by placing your cursor inside it and pressing *Ctrl+Shift+Enter*. 
+
+```{r}
+load_history <- read.csv("E:/ETUDE/EP/MAP573/Projet/global-energy-forecasting-competition-2012-load-forecasting/Load_history.csv", header=TRUE)
+library(naniar)
+library(VIM)
+library(FactoMineR)
+library(missMDA)
+load_history<-load_history %>% dplyr::na_if('')
+#res<-summary(aggr(load_history, sortVar=TRUE))$combinations
+matrixplot(load_history, sortby = 2)
+```
+
+
+```{r}
+gg_miss_var(load_history)
+```
+
+```{r}
+res<-summary(aggr(load_history, sortVar=TRUE))$combinations
+```
+
+
+```{r}
+library(dplyr)
+varnames <- paste("data_",1:20,sep="")
+for (i in 1:20){
+  assign(varnames[i],value=filter(load_history,zone_id == i))
+}
+```
+
+
+```{r}
+matrixplot(data_1, sortby = 2)
+```
+
+
+```{r}
+library(forecast)
+?snaive
+```
+
+```{r}
+library(fpp2)
+rm(ausbeer)
+data(ausbeer)
+#show(ausbeer)
+forecast(ausbeer)
+```
+
+```{r}
+
+beer2 <- window(ausbeer,start=1992,end=c(2007,4))
+
+autoplot(beer2) +
+  autolayer(meanf(beer2, h=11)$mean, series="Mean") +
+  autolayer(naive(beer2, h=11)$mean, series="Naïve") +
+  autolayer(snaive(beer2, h=11)$mean, series="seasonal naïve") +
+  autolayer(forecast(beer2, h=11)$mean,series="Forecast")+
+  ggtitle("prdiction") +
+  xlab("year") + ylab("ML") +
+  guides(colour=guide_legend(title="prediction")) +
+  theme(text=element_text(family="STHeiti"))+
+  theme(plot.title = element_text(hjust = 0.5))
+```
+
+```{r}
+
+beer2 %>%
+  stl(t.window=13, s.window="periodic", robust=TRUE) %>%
+  autoplot()
+```
+
+```{r}
+autoplot(beer2)
+```
+
+
+```{r}
+fit <- stl(beer2,t.window=13, s.window="periodic", robust=TRUE)
+
+fit %>% forecast(method="arima") %>% autoplot() 
+```
+
+
+```{r}
+dim(data_1)
+D_1<-data_1[,5:28]
+D_1_1<-as.vector(t(D_1))
+#Data_1ezone_dim1
+
+```
+
+```{r}
+dim(data_1)
+D_1<-data_1[,5:28]
+D_1_1t<-as.vector(t(D_1))
+D_1_1 <- c(length(D_1_1t))
+library(stringr)
+for (i in 1:length(D_1_1t)){
+  D_1_1t[i] <- str_remove(D_1_1t[i],",")
+  D_1_1[i] <- strtoi(D_1_1t[i])
+}
+D_1_1ts<-ts(D_1_1,frequency=24) #time sequence
+```
+
+
+
+data for each hour
+```{r}
+D_1_1h<-c(dim(D_1)[1])
+for (i in 1:dim(D_1)[1]){
+  D_1_1h[i]<-strtoi(str_remove(D_1[i,1],","))
+}
+D_1_1hts<-ts(D_1_1h,frequency=365)
+```
+
+
+```{r}
+Day <- 30
+ts(D_1_1[1:(24*Day)],frequency=24) %>%
+  stl(t.window=7, s.window="periodic", robust=TRUE) %>%
+  autoplot()
+
+#stl(ts(D_1_1[1:(24*Day)],frequency=24),t.window=7, s.window="periodic", robust=TRUE)$time.series[,2]
+
+
+fit <- stl(ts(D_1_1[1:(24*Day)],frequency=24),t.window=7,s.window="periodic",robust=TRUE)
+#fit$time.series[,2]
+
+fit %>% forecast(method="naive",h=(24*10)) %>% autoplot() 
+fit %>% forecast(method="arima",h=(24*10)) %>% autoplot() 
+```
+```{r}
+#download.packages("seasonal")
+library(seasonal)
+Day<-70
+autoplot(seas(ts(D_1_1[1:(24*Day)],frequency=24,start = 2004)))
+```
+
+Add a new chunk by clicking the *Insert Chunk* button on the toolbar or by pressing *Ctrl+Alt+I*.
+
+When you save the notebook, an HTML file containing the code and output will be saved alongside it (click the *Preview* button or press *Ctrl+Shift+K* to preview the HTML file).
+
+The preview shows you a rendered HTML copy of the contents of the editor. Consequently, unlike *Knit*, *Preview* does not run any R code chunks. Instead, the output of the chunk when it was last run in the editor is displayed.
