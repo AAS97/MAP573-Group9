@@ -17,3 +17,7 @@ link:http://r-statistics.co/Time-Series-Forecasting-With-R.html
 “How to use auto.arima to impute missing values”: link: https://stats.stackexchange.com/questions/104565/how-to-use-auto-arima-to-impute-missing-values
 
 "seasonal & trend extraction in R": link:https://anomaly.io/seasonal-trend-decomposition-in-r/index.html
+
+
+
+Google Slide: https://docs.google.com/presentation/d/1prv4l1Jq7GSpTMgWe9V9szEKBz0q34k8-DRlWQj4pXc/edit?usp=sharing
