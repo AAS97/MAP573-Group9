@@ -13,3 +13,5 @@ Time-series analysis
 link:https://otexts.com/fpp2/components.html
 In R
 link:http://r-statistics.co/Time-Series-Forecasting-With-R.html
+
+“How to use auto.arima to impute missing values”: link: https://stats.stackexchange.com/questions/104565/how-to-use-auto-arima-to-impute-missing-values
