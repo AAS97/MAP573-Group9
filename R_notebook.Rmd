@@ -1,0 +1,227 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+```{r loading}
+
+#library(readxl)
+#load_data <- read_excel("C:\\Users\\PC_victor\\Documents\\X\\MAP573\\Projet\\global-energy-forecasting-competition-2012-load-forecasting\\Load_history_copy_xlsx.xlsx")
+
+load_inline_z1 <- read.csv("C:\\Users\\PC_victor\\Documents\\X\\MAP573\\Projet\\inline1.csv")
+load_inline_z1 <- load_inline_z1[,2:4]
+
+library(lubridate)
+
+
+load_inline_z1$Date <- ymd_hm(paste(load_inline_z1$datetime, load_inline_z1$time))
+
+clean_z1 <- data.frame(load_inline_z1$Date,load_inline_z1$values)
+
+colnames(clean_z1) = c("Date","Load")
+
+plot(clean_z1$Date,clean_z1$Load,type='l',xaxt="n",xlab='Time',ylab="Load",col='royalblue3')
+```
+
+````{r data completion}
+#for each missing row, we find previous year values
+
+missing_idx <- which(is.na(clean_z1),arr.ind = TRUE)[,1]
+
+#seasonal naive method
+for(i in missing_idx){
+  clean_z1[i,2] = clean_z1[i-24*365,2] 
+}
+
+missing_idx <- which(is.na(clean_z1),arr.ind = TRUE)[,1]
+#load_data is now full :)
+
+library(ggplot2)
+ggplot(data = clean_z1, aes (x = Date, y = Load))+geom_line(color = "#00AFBB",size = 0.2)
+````
+
+````{r analyse z1}
+library(TSA)
+
+boxplot(clean_z1$Load)
+hist(clean_z1$Load,breaks = 40)
+
+hour <- as.factor(format(clean_z1$Date, '%H'))
+DailyLoad <- tapply(clean_z1$Load,hour,mean)
+plot(DailyLoad,type = 'b')
+
+boxplot(clean_z1$Load~hour,col="lightblue",pch=20,cex=0.5)
+
+````
+````{r loading all zones}
+load_all <- read.csv("D:\\X\\MAP573\\Projet\\inline_all_zone_and_sum.csv")
+load_all <- load_all[,2:24]
+
+library(lubridate)
+
+
+load_all$Date <- ymd_hm(paste(load_all$datetime, load_all$time))
+
+clean_all <- data.frame(load_all$Date,load_all[,3:23])
+
+colnames(clean_all)[colnames(clean_all) == "load_all.Date"] <- "Date"
+
+#for each missing row, we find previous year values
+
+missing_idx <- which(is.na(clean_all),arr.ind = TRUE)[,1]
+doublons <- which(duplicated(missing_idx))
+missing_idx <- missing_idx[-doublons]
+#seasonal naive method
+for(i in missing_idx){
+  clean_all[i,2:22] = clean_all[i-24*365,2:22] 
+}
+
+missing_idx <- which(is.na(clean_all),arr.ind = TRUE)[,1]
+#load_data is now full :)
+
+#plot sum
+library(ggplot2)
+ggplot(data = clean_all, aes (x = Date, y = X21))+geom_line(color = "#00AFBB",size = 0.2)
+````
+
+````{r analyse sum }
+library(TSA)
+
+boxplot(clean_all$X21)
+hist(clean_all$X21,breaks = 40)
+
+hour <- as.factor(format(clean_all$Date, '%H'))
+DailyLoadX21 <- tapply(clean_all$X21,hour,mean)
+plot(DailyLoadX21,type = 'b', pch = 10)
+
+boxplot(clean_all$X21~hour,col="lightblue",pch=20,cex=0.5)
+
+
+````
+
+`````{r seasonality analyse}
+
+#anual season
+annual.ts <- ts ( clean_all$X21, start = 1, frequency = 24*7*52)
+plot(annual.ts)
+
+library(fpp2)
+ggseasonplot(annual.ts)
+
+
+#monthly season on the first year
+month.ts <- ts( clean_all$X21[1:8760], start = 1, frequency = 24*30) 
+ggseasonplot(month.ts)
+
+#weekly on the first week
+weekly.ts <- ts( clean_all$X21[1:168], start = 1, frequency = 24) 
+ggseasonplot(weekly.ts, day.label = TRUE, day.labels.right = TRUE)
+
+
+autoplot(annual.ts)
+spectrum(annual.ts)
+#fft(annual.ts)
+
+
+````
+
+
+````{r try 1 decomposition}
+
+perio <- periodogram(clean_all$X21)
+
+dd = data.frame(freq = perio$freq , spec = perio$spec)
+order = dd[order(-dd$spec),]
+top = head(order, 10)
+
+top
+
+time = 1/(top$freq) #conversion en jours
+time
+
+library(fpp)
+
+trend = ma(annual.ts,order = 4444, centre = T)
+plot(as.ts(trend))
+
+de_trend = annual.ts - trend
+plot(de_trend)
+
+data <- which(!is.na(de_trend),arr.ind = TRUE)
+de_trend_full <- de_trend[data]
+
+
+plot(de_trend_full)
+perio_de <- periodogram(de_trend_full)
+dd_de = data.frame(freq = perio_de$freq , spec = perio_de$spec)
+order_de = dd_de[order(-dd_de$spec),]
+top_de = head(order_de, 5)
+top_de
+time = 1/top_de$freq
+time
+
+trend2 = ma(de_trend,order = 24, centre = T)
+plot(as.ts(trend2))
+
+de_trend2 = de_trend - trend2
+plot(de_trend2)
+
+test <- msts(clean_all$X21, seasonal.periods = c(4444,24))
+test$1
+
+
+A = ggAcf(clean_all$X21, lag = 200)
+A$data$Freq
+A
+dd = data.frame(freq = A$data$Freq , lag = A$data$lag)
+order = dd[order(-dd$freq),]
+top = head(order, 10)
+top
+acf(clean_all$X21)
+a <- pacf(clean_all$X21)
+
+
+#we can observe trend + different seasonalities
+#seasonality about every multiple of 25 days... why ?
+
+````
+````{r try 2}
+mean = rollmean(clean_all$X21, 24*7*4)
+plot(mean, type = 'p')
+
+library(forecast)
+adf.test(clean_all$X21)
+
+
+annual.ts %>% mstl() %>% autoplot()
+weekly.ts %>% mstl() %>% autoplot()
+month.ts %>% mstl() %>% autoplot()
+
+
+ annual.ts %>% stlf( h = 7*24) %>% autoplot(include = 200)
+
+vizu = pred$upper[-2000:0] 
+pred$lower
+
+plot(vizu)
+
+
+
+````
+
+
+````{r arima}
+library('forecast')
+fit.arima <- auto.arima(clean_all$X21)
+#arima 2,1,3
+fit.arima %>% forecast(h=7*24) %>% autoplot(include = 24*8*4)
+checkresiduals(fit.arima)
+
+#arima 2,1,3
+
+fit.ets <- ets(clean_all$X21)
+fit.ets %>% forecast(h=24) %>% autoplot(include = 24*8)
+checkresiduals(fit.ets)
+
+
+````
