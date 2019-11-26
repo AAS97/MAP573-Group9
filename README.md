@@ -1,6 +1,8 @@
 # MAP573-Group9
 DataScience Project - Time Series Forcasting - Energy Forcasting
 
+Google Slide: https://docs.google.com/presentation/d/1prv4l1Jq7GSpTMgWe9V9szEKBz0q34k8-DRlWQj4pXc/edit?usp=sharing
+
 
 This is a list of tasks to be done, please update as you progress :
 
