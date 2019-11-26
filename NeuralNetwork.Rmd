@@ -1,0 +1,113 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+Import Data:
+```{r}
+#Why Load_history(1)? : removed the "," at excel
+
+Load_history <- read.csv("E:/ETUDE/EP/MAP573/Projet/global-energy-forecasting-competition-2012-load-forecasting/Load_history(1).csv")
+temperature <- read.csv("E:/ETUDE/EP/MAP573/Projet/global-energy-forecasting-competition-2012-load-forecasting/temperature_history.csv")
+```
+
+Pre-traitement of Data
+Seperate the datas and the temperatures by the zones and stations
+```{r}
+library(dplyr)
+
+
+varnames <- paste("data_",1:20,sep="")
+
+for (i in 1:20){
+  assign(varnames[i],value=filter(Load_history,zone_id == i)[2:28])
+}
+varnames <- paste("T_",1:11,sep="")
+for (i in 1:11){
+  assign(varnames[i],value=filter(temperature,station_id == i)[2:28])
+}
+
+```
+
+
+to 1D Vector
+```{r}
+
+varnames <- paste("T_",1:11,sep="")
+for (i in 1:11){
+  assign(paste(varnames[i],"l",sep=""),value=as.vector(t(get(varnames[i])[,4:27])))
+}
+
+varnames <- paste("data_",1:20,sep="")
+for (i in 1:20){
+  assign(paste(varnames[i],"l",sep=""),value=as.vector(t(get(varnames[i])[,4:27])))
+}
+
+```
+
+Calculate the mean of temperature
+```{r}
+varnames <- paste("T_",1:11,sep="")
+T <- unlist(T_1l, use.names=FALSE)
+for (i in 2:11){
+  T <- rbind(T,unlist(get(paste(varnames[i],"l",sep="")), use.names=FALSE))
+}
+Tm <-colMeans(T)
+```
+
+External regretor:
+According to the reference and observation,
+We choose the mean temperature of 48h before t0
+and the temperature 12h before t0
+as external regressors
+
+```{r}
+library(pracma)
+end<-which(is.na(Tm))[1]-1
+Tmu<-Tm[1:end]
+Tm_Avr<-movavg(Tmu, 48, "s")[49:end]
+Tm_Bf<-Tmu[(49-12):(end-12)]
+
+L <- list (Tm_Avr,Tm_Bf)
+M <- do.call( rbind,L)
+M <- t(M)
+
+#We take the first Zone
+data_1lu<-data_1l[49:end]
+```
+
+
+Neural Network Time Series Forecasts without external regressors
+
+```{r}
+library(forecast)
+Day<-300
+data_1luts<-ts(data_1lu,frequency = 24)
+fit.nn <- nnetar(window(data_1luts,end=c(Day,24)), lambda="auto")
+autoplot(forecast(fit.nn,h=7*24))+
+  ylab("nnetar without xreg")+
+  xlab("Time/Day")
+```
+
+Neural Network Time Series Forecasts with external regressors
+
+```{r}
+fit.nnx <- nnetar(window(data_1luts,end=c(Day,24)), lambda="auto",xreg = M[1:(24*Day),])
+autoplot(forecast(fit.nnx,h=7*24,xreg=M[(24*Day):(24*(Day+7)),]))+
+  ylab("nnetar xreg")+
+  xlab("Time/Day")
+```
+
+
+
+```{r}
+library(fpp2)
+autoplot(window(data_1luts,start=c((Day-5),24),end=c((Day+7),24)))+
+  autolayer(forecast(fit.nnx,h=7*24,xreg=M[(24*Day):(24*(Day+7)),]),include = 120,series = "nntar_xreg")+
+  autolayer(forecast(fit.nn,h=7*24),include = 120,series = "nntar")+
+  guides(colour=guide_legend(title="prediction"))+
+  ylab("nnetar")+
+  xlab("Time/Day")
+```
+
+
