@@ -1,0 +1,229 @@
+---
+title: "Simple Data Regression"
+output: html_notebook
+---
+
+Created by Aubry
+Date : 22/10/19
+
+
+Load data
+```{r}
+
+library(data.table)
+
+library(dplyr)
+
+library(formattable)
+
+library(tidyr)
+
+library(rlist)
+load_all <- read.csv("./data/processed/inline/inline_all_zone_and_sum.csv")
+load_all <- load_all[,2:24]
+
+library(lubridate)
+
+
+load_all$Date <- ymd_hm(paste(load_all$datetime, load_all$time))
+
+clean_all <- data.frame(load_all$Date,load_all[,3:23])
+
+colnames(clean_all)[colnames(clean_all) == "load_all.Date"] <- "Date"
+
+#for each missing row, we find previous year values
+
+missing_idx <- which(is.na(clean_all),arr.ind = TRUE)[,1]
+doublons <- which(duplicated(missing_idx))
+missing_idx <- missing_idx[-doublons]
+#seasonal naive method
+for(i in missing_idx){
+  clean_all[i,2:22] = clean_all[i-24*365,2:22] 
+}
+
+missing_idx <- which(is.na(clean_all),arr.ind = TRUE)[,1]
+```
+
+Discribe data
+```{r}
+dim(clean_all)
+summary(clean_all)
+head(clean_all)
+```
+Remarques :
+1. Data are taken from 2004-01-01 to 2008-07-07
+2. Total of 1650 rows
+3. 63 of which are NA -> missing values
+```{r}
+library(forecast)
+hl <- 7*24
+#dropping the last week as it is NA
+data.X1 <- ts(clean_all$X1[1:(length(clean_all$X1)-hl)])
+data.X2 <- ts(clean_all$X2[1:(length(clean_all$X2)-hl)])
+
+#data.mean <- meanf(ts(data.X1$X1, frequency = 24*365),h=hl)
+#data.naive <- rwf(ts(data.X1$X1, frequency = 24*365),h=hl)
+#data.snaive <- snaive(ts(data.X1$X1, frequency = 24*365),h=hl)
+#data.X1$X1[1:(length(data.X1$X1)-hl)]
+fit.rwf <- rwf(data.X1[1:(length(data.X1)-hl)],h=hl)
+fit.drift <- rwf(data.X1[1:(length(data.X1)-hl)],h=hl, drift = TRUE)
+fit.meanf <- meanf(data.X1[1:(length(data.X1)-hl)],h=hl)
+fit.snaive <- snaive(ts(data.X1[1:(length(data.X1)-hl)],freq = 24),h=hl)
+
+fit.rwf.acc <- accuracy(fit.rwf, data.X1[(length(data.X1)-hl+1):length(data.X1)])
+fit.drift.acc <- accuracy(fit.drift, data.X1[(length(data.X1)-hl+1):length(data.X1)])
+fit.meanf.acc <- accuracy(fit.meanf, data.X1[(length(data.X1)-hl+1):length(data.X1)])
+fit.snaive.acc <- accuracy(fit.snaive, data.X1[(length(data.X1)-hl+1):length(data.X1)])
+
+
+`````
+Dealing with accuracies
+```{r}
+print(fit.rwf.acc)
+print(fit.drift.acc)
+print(fit.meanf.acc)
+print(fit.snaive.acc)
+
+fit.meanf.acc <- cbind(fit.meanf.acc, c(NA, NA))
+colnames(fit.meanf.acc)[7] <- "ACF1"
+print(fit.meanf.acc)
+
+data.acc <- rbind(fit.rwf.acc, fit.drift.acc, fit.meanf.acc, fit.snaive.acc)
+data.acc <- cbind(data.acc, c("rwf", "rwf", "drift", "drift", "meanf", "meanf", "snaive", "snaive"))
+colnames(data.acc)[8] <- "Forecast"
+
+data.df <- data.frame(data.acc)
+print(data.df)
+
+
+
+
+model <- c(rep("rwf" , 7), rep("drift", 7), rep("meanf" , 7) , rep("snaive" , 7) )
+metrics <- rep(c("ME" , "RMSE" ,"MAE", "MPE", "MAPE", "MASE", "ACF1") , 4)
+value <- c(fit.rwf.acc[2,], fit.drift.acc[2,], fit.meanf.acc[2,], fit.snaive.acc[2,])
+names(value) <- NULL
+data.acc <- data.frame(model,metrics,value)
+
+# Grouped
+ggplot(data.acc, aes(fill=model, y=value, x=metrics)) + 
+    geom_bar(position="dodge", stat="identity")
+
+
+```
+```{r}
+
+fit.rwf$my_mean <- ts(fit.rwf$mean, start = 39265 , end = 39432 , frequency = 1)
+fit.drift$my_mean <- ts(fit.drift$mean, start = 39265 , end = 39432 , frequency = 1)
+fit.meanf$my_mean <- ts(fit.meanf$mean, start = 39265 , end = 39432 , frequency = 1)
+fit.snaive$my_mean <- ts(fit.snaive$mean, start = 39265 , end = 39432 , frequency = 1)
+
+autoplot(window(data.X1, start= 39096,end = 39432)) +
+  autolayer(fit.meanf$my_mean, series="Mean", PI=FALSE) +
+  autolayer((fit.drift$my_mean-fit.meanf$my_mean), series="Drift", PI=FALSE) +
+  autolayer(fit.rwf$my_mean, series="Naïve", PI=FALSE) +
+  autolayer(fit.snaive$my_mean, series="Seasonal", PI=FALSE)
+```
+
+Cross-Validation
+Impossible to run for all data
+```{r}
+cv.rwf <- tsCV(data.X1[(length(data.X1)-10*hl):(length(data.X1))], rwf, drift =TRUE, h=7*24)
+# Compute the MSE values and remove missing values
+cv.rwf.mse <- colMeans(cv.rwf^2, na.rm = T)
+
+cv.meanf <- tsCV(data.X1[(length(data.X1)-10*hl):(length(data.X1))], meanf, drift =TRUE, h=7*24)
+# Compute the MSE values and remove missing values
+cv.meanf.mse <- colMeans(cv.meanf^2, na.rm = T)
+
+cv.snaive <- tsCV(data.X1[(length(data.X1)-10*hl):(length(data.X1))], snaive, drift =TRUE, h=7*24)
+# Compute the MSE values and remove missing values
+cv.snaive.mse <- colMeans(cv.snaive^2, na.rm = T)
+
+# Plot the MSE values against the forecast horizon
+cv.rwf.df <- data.frame(h = 1:hl, MSE= cv.rwf.mse)
+cv.meanf.df <- data.frame(h = 1:hl, MSE = cv.meanf.mse)
+cv.snaive.df <- data.frame(h = 1:hl, MSE = cv.snaive.mse) 
+
+print(cv.meanf)
+ggplot()+
+    geom_line(data = cv.rwf.df, aes(x = h, y = MSE, color ="rwf"))+
+    geom_line(data = cv.meanf.df, aes(x = h, y = MSE, color = "meanf"))+
+    geom_line(data = cv.snaive.df, aes(x = h, y = MSE, color="snaive"))
+```
+# Simple Mean Prediction
+```{r}
+mean_forecast <- meanf(load_all$X1, 7*24)
+accuracy(mean_forecast)
+```
+# Naive prédiction, previous value
+```{r}
+naive_forecast <- naive(load_all$X1, 7*24)
+accuracy(naive_forecast)
+```
+
+# Correlation between zones
+$$norm\_corr(x,y)=\dfrac{\sum_{n=0}^{n-1} x[n]*y[n]}{\sqrt{\sum_{n=0}^{n-1} x[n]^2 * \sum_{n=0}^{n-1} y[n]^2}}$$
+```{r}
+correlationTable = function(graphs) {
+  cross = matrix(nrow = length(graphs)-3, ncol = length(graphs)-3)
+  for(graph1Id in 3:length(graphs)-1){
+    graph1 = graphs[[graph1Id]]
+    print(graph1Id)
+    for(graph2Id in 3:length(graphs)-1) {
+      graph2 = graphs[[graph2Id]]
+      if(graph1Id == graph2Id){
+        break;
+      } else {
+        correlation = ccf(graph1, graph2, lag.max = 0, na.action = na.pass, plot = FALSE)
+        cross[graph1Id-2, graph2Id-2] = correlation$acf[1]
+      }
+    }
+  }
+  cross
+}
+
+graphs = load_all
+corr = correlationTable(graphs)
+#print(corr)
+
+
+# Obtenir le triangle inférieur
+get_lower_tri<-function(cormat){
+  cormat[upper.tri(cormat)] <- NA
+  return(cormat)
+}
+lower_tri <- get_lower_tri(corr)
+
+
+# Fondre la matrice de corrélation
+library(reshape2)
+melted_cormat <- melt(lower_tri, na.rm = TRUE)
+print(melted_cormat)
+# Heatmap
+library(ggplot2)
+ggplot(data = melted_cormat, aes(Var2, Var1, fill = value))+
+  geom_tile(color = "white")+
+  scale_fill_gradient2(low = "blue", high = "red", mid = "white", 
+                       midpoint = 0, limit = c(-1,1), space = "Lab",
+                       name="Pearson\nCorrelation") +
+  theme_minimal()+ 
+  labs(y= "Zone 1", x = "Zone 2")+
+  theme(axis.text.x = element_text(angle = 45, vjust = 1, 
+                                   size = 12, hjust = 1))+
+  coord_fixed()
+```
+
+
+See the revered correlated ts
+```{r}
+ts.X9 <-ts(load_all$X9[(length(load_all$X9)-24*7*3):(length(load_all$X9)-24*7)])
+ts.X10 <-ts(load_all$X10[(length(load_all$X10)-24*7*3):(length(load_all$X10)-24*7)])
+ts.X6 <-ts(load_all$X6[(length(load_all$X6)-24*7*3):(length(load_all$X6)-24*7)])
+ts.X12 <-ts(load_all$X12[(length(load_all$X12)-24*7*3):(length(load_all$X12)-24*7)])
+autoplot(ts.X9)+autolayer(ts.X10)+autolayer(ts.X6)+autolayer(ts.X12)+labs(y="load", x="time (h)")
+```
+```{r}
+ccf(load_all$X6, load_all$X12, na.action = na.pass)+
+  scale_x_continuous(breaks = seq(-40, 40, by=5))
+```
+
