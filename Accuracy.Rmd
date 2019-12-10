@@ -76,7 +76,9 @@ for (i in 2:11){
   T <- rbind(T,unlist(get(paste(varnames[i],"l",sep="")), use.names=FALSE))
 }
 Tm <-colMeans(T)
-
+Tmn <- Tm/max(Tm,na.rm=TRUE) 
+#Tmn<- Tmn-mean(Tmn,na.rm=TRUE)
+#Tmn <- normalize(Tm,na.rm = TRUE)
 ```
 
 
@@ -99,6 +101,15 @@ L <- list (Tm_Avr,Tm_Bf)
 M <- do.call( rbind,L)
 M <- t(M)
 
+end<-which(is.na(Tmn))[1]-1
+Tmnu<-Tmn[1:end]
+Tmn_Avr<-movavg(Tmnu, 48, "s")[49:end]
+Tmn_Bf<-Tmnu[(49-12):(end-12)]
+
+Ln <- list (Tmn_Avr,Tmn_Bf)
+Mn <- do.call( rbind,Ln)
+Mn <- t(Mn)
+
 ```
 
 
@@ -109,8 +120,12 @@ M <- t(M)
 library(forecast)
 hl <- 7*24
 #dropping the last week as it is NA
-data.X1 <- ts(clean_all$X1[1:(length(clean_all$X1)-hl)])
-data.X2 <- ts(clean_all$X2[1:(length(clean_all$X2)-hl)])
+data.X1 <- ts(clean_all$X1[1:(length(clean_all$X1)-2*hl)])
+data.X2 <- ts(clean_all$X2[1:(length(clean_all$X2)-2*hl)])
+data.X1max <- max(data.X1,na.rm = TRUE)
+#data.X1n <- normalize(data.X1,na.rm = TRUE)
+data.X1n <- data.X1/data.X1max
+#data.X1n <- data.X1n - mean(data.X1n,na.rm=TRUE)
 
 #data.mean <- meanf(ts(data.X1$X1, frequency = 24*365),h=hl)
 #data.naive <- rwf(ts(data.X1$X1, frequency = 24*365),h=hl)
@@ -120,24 +135,26 @@ fit.rwf <- rwf(data.X1[1:(length(data.X1)-hl)],h=hl)
 fit.drift <- rwf(data.X1[1:(length(data.X1)-hl)],h=hl, drift = TRUE)
 fit.meanf <- meanf(data.X1[1:(length(data.X1)-hl)],h=hl)
 fit.snaive <- snaive(ts(data.X1[1:(length(data.X1)-hl)],freq = 24),h=hl)
-fit.nn <- nnetar(ts(data.X1[(length(data.X1)-hl-365*24):(length(data.X1)-hl)],freq = 24), lambda="auto",MaxNWts=1082)
-fit.nnx <- nnetar(ts(data.X1[(length(data.X1)-hl-365*24):(length(data.X1)-hl)],freq = 24), lambda="auto",xreg = M[(length(data.X1)-hl-365*24-48):(length(data.X1)-hl-48),])
+fit.nn <- nnetar(ts(data.X1[(length(data.X1)-hl-365*24):(length(data.X1)-hl)],50,freq = 24), lambda="auto",MaxNWts=1082)
+fit.nnx <- nnetar(ts(data.X1[(length(data.X1)-hl-365*24):(length(data.X1)-hl)],freq = 24), 50,lambda="auto",MaxNWts=1405,xreg = M[(length(data.X1)-hl-365*24-48):(length(data.X1)-hl-48),])
 
+fit.nnxn <- nnetar(ts(data.X1n[(length(data.X1n)-hl-365*24):(length(data.X1n)-hl)],freq = 24), 50,lambda="auto",MaxNWts=1405,xreg = Mn[(length(data.X1n)-hl-365*24-48):(length(data.X1n)-hl-48),])
 #Since the temperature data don't have the last 8 values for 30.06
 
-#fit.rwf.acc <- accuracy(fit.rwf, data.X1[(length(data.X1)-hl+1):length(data.X1)])
-#fit.drift.acc <- accuracy(fit.drift, data.X1[(length(data.X1)-hl+1):length(data.X1)])
-#fit.meanf.acc <- accuracy(fit.meanf, data.X1[(length(data.X1)-hl+1):length(data.X1)])
-#fit.snaive.acc <- accuracy(fit.snaive, data.X1[(length(data.X1)-hl+1):length(data.X1)])
-#fit.nn.acc <- accuracy(forecast(fit.nn,h=hl), data.X1[(length(data.X1)-hl+1):length(data.X1)])
-#fit.nnx.acc <- accuracy(forecast(fit.nnx,h=hl,xreg = M[(length(data.X1)-hl+1-48):size(M)[1],]), #data.X1[(length(data.X1)-hl+1):size(M)[1]])
+fit.rwf.acc <- accuracy(fit.rwf, data.X1[(length(data.X1)-hl+1):length(data.X1)])
+fit.drift.acc <- accuracy(fit.drift, data.X1[(length(data.X1)-hl+1):length(data.X1)])
+fit.meanf.acc <- accuracy(fit.meanf, data.X1[(length(data.X1)-hl+1):length(data.X1)])
+fit.snaive.acc <- accuracy(fit.snaive, data.X1[(length(data.X1)-hl+1):length(data.X1)])
+fit.nn.acc <- accuracy(forecast(fit.nn,h=hl), data.X1[(length(data.X1)-hl+1):length(data.X1)])
+fit.nnx.acc <- accuracy(forecast(fit.nnx,h=hl,xreg = M[(length(data.X1)-hl+1-48):(length(data.X1)-48),]),data.X1[(length(data.X1)-hl+1):length(data.X1)])
 
-fit.rwf.acc <- accuracy(fit.rwf, data.X1[(length(data.X1)-hl+1):size(M)[1]])
-fit.drift.acc <- accuracy(fit.drift, data.X1[(length(data.X1)-hl+1):size(M)[1]])
-fit.meanf.acc <- accuracy(fit.meanf, data.X1[(length(data.X1)-hl+1):size(M)[1]])
-fit.snaive.acc <- accuracy(fit.snaive, data.X1[(length(data.X1)-hl+1):size(M)[1]])
-fit.nn.acc <- accuracy(forecast(fit.nn,h=hl), data.X1[(length(data.X1)-hl+1):size(M)[1]])
-fit.nnx.acc <- accuracy(forecast(fit.nnx,h=hl,xreg = M[(length(data.X1)-hl+1-48):size(M)[1],]), data.X1[(length(data.X1)-hl+1):size(M)[1]])
+fit.nnxn.acc <- accuracy(forecast(fit.nnxn,h=hl,xreg = Mn[(length(data.X1n)-hl+1-48):(length(data.X1n)-48),]),data.X1n[(length(data.X1n)-hl+1):length(data.X1n)])
+#fit.rwf.acc <- accuracy(fit.rwf, data.X1[(length(data.X1)-hl+1):size(M)[1]])
+#fit.drift.acc <- accuracy(fit.drift, data.X1[(length(data.X1)-hl+1):size(M)[1]])
+#fit.meanf.acc <- accuracy(fit.meanf, data.X1[(length(data.X1)-hl+1):size(M)[1]])
+#fit.snaive.acc <- accuracy(fit.snaive, data.X1[(length(data.X1)-hl+1):size(M)[1]])
+#fit.nn.acc <- accuracy(forecast(fit.nn,h=hl), data.X1[(length(data.X1)-hl+1):size(M)[1]])
+#fit.nnx.acc <- accuracy(forecast(fit.nnx,h=hl,xreg = M[(length(data.X1)-hl+1-48):size(M)[1],]), data.X1[(length(data.X1)-hl+1):size(M)[1]])
 ```
 
 Dealing with accuracies
@@ -153,8 +170,8 @@ fit.meanf.acc <- cbind(fit.meanf.acc, c(NA, NA))
 colnames(fit.meanf.acc)[7] <- "ACF1"
 print(fit.meanf.acc)
 
-data.acc <- rbind(fit.rwf.acc, fit.drift.acc, fit.meanf.acc, fit.snaive.acc, fit.nn.acc)
-data.acc <- cbind(data.acc, c("rwf", "rwf", "drift", "drift", "meanf", "meanf", "snaive", "nn","nnx"))
+data.acc <- rbind(fit.rwf.acc, fit.drift.acc, fit.meanf.acc, fit.snaive.acc,fit.nn.acc,fit.nnx.acc,fit.nnxn.acc)
+data.acc <- cbind(data.acc, c("rwf", "rwf", "drift", "drift", "meanf", "meanf", "snaive", "nn","nnx","nnxn"))
 colnames(data.acc)[8] <- "Forecast"
 
 data.df <- data.frame(data.acc)
@@ -163,9 +180,9 @@ print(data.df)
 
 
 
-model <- c(rep("rwf" , 7), rep("drift", 7), rep("meanf" , 7) , rep("snaive" , 7), rep("nn" , 7), rep("nnx" , 7) )
-metrics <- rep(c("ME" , "RMSE" ,"MAE", "MPE", "MAPE", "MASE", "ACF1") , 6)
-value <- c(fit.rwf.acc[2,], fit.drift.acc[2,], fit.meanf.acc[2,], fit.snaive.acc[2,], fit.nn.acc[2,],fit.nnx.acc[2,])
+model <- c(rep("rwf" , 7), rep("drift", 7), rep("meanf" , 7) , rep("snaive" , 7), rep("nn" , 7), rep("nnx" , 7),  rep("nnxn" , 7) )
+metrics <- rep(c("ME" , "RMSE" ,"MAE", "MPE", "MAPE", "MASE", "ACF1") , 7)
+value <- c(fit.rwf.acc[2,], fit.drift.acc[2,], fit.meanf.acc[2,], fit.snaive.acc[2,], fit.nn.acc[2,],fit.nnx.acc[2,],fit.nnxn.acc[2,])
 names(value) <- NULL
 data.acc <- data.frame(model,metrics,value)
 
@@ -179,14 +196,14 @@ ggplot(data.acc, aes(fill=model, y=value, x=metrics)) +
 ```
 ```{r}
 
-fit.rwf$my_mean <- ts(fit.rwf$mean, start = 39265 , end = 39432 , frequency = 1)
-fit.drift$my_mean <- ts(fit.drift$mean, start = 39265 , end = 39432 , frequency = 1)
-fit.meanf$my_mean <- ts(fit.meanf$mean, start = 39265 , end = 39432 , frequency = 1)
-fit.snaive$my_mean <- ts(fit.snaive$mean, start = 39265 , end = 39432 , frequency = 1)
-fit.nn$my_mean <- ts(forecast(fit.nn,h=hl)$mean, start = 39265 , end = 39432 , frequency = 1)
-fit.nnx$my_mean <- ts(forecast(fit.nnx,h=hl,xreg = M[(length(data.X1)-hl+1-48):size(M)[1],])$mean, start = 39265 , end = 39432 , frequency = 1)
+fit.rwf$my_mean <- ts(fit.rwf$mean, start = 39097 , end = 39264 , frequency = 1)
+fit.drift$my_mean <- ts(fit.drift$mean, start = 39097 , end = 39264 , frequency = 1)
+fit.meanf$my_mean <- ts(fit.meanf$mean, start = 39097 , end = 39264 , frequency = 1)
+fit.snaive$my_mean <- ts(fit.snaive$mean, start = 39097 , end = 39264 , frequency = 1)
+fit.nn$my_mean <- ts(forecast(fit.nn,h=hl)$mean, start = 39097 , end = 39264 , frequency = 1)
+fit.nnx$my_mean <- ts(forecast(fit.nnx,h=hl,xreg = M[(length(data.X1)-hl+1-48):size(M)[1],])$mean, start = 39097 , end = 39264 , frequency = 1)
 
-autoplot(window(data.X1, start= 39096,end = 39432)) +
+autoplot(window(data.X1, start= 38928,end = 39264)) +
   autolayer(fit.nn$my_mean,series = "nntar")+
   autolayer(fit.nnx$my_mean,series = "nntar_xreg")+
   autolayer(fit.meanf$my_mean, series="Mean", PI=FALSE) +

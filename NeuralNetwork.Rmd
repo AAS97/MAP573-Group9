@@ -37,12 +37,18 @@ to 1D Vector
 
 varnames <- paste("T_",1:11,sep="")
 for (i in 1:11){
-  assign(paste(varnames[i],"l",sep=""),value=as.vector(t(get(varnames[i])[,4:27])))
+  name <- varnames[i]
+  assign(paste(name,"l",sep=""),value=as.vector(t(get(name)[,4:27])))
+  name <- paste(name,"l",sep="")
+  assign(paste(name,"n",sep=""),value=get(name)/(max(get(name),na.rm = TRUE)))
 }
 
 varnames <- paste("data_",1:20,sep="")
 for (i in 1:20){
-  assign(paste(varnames[i],"l",sep=""),value=as.vector(t(get(varnames[i])[,4:27])))
+  name <- varnames[i]
+  assign(paste(name,"l",sep=""),value=as.vector(t(get(name)[,4:27])))
+  name <- paste(name,"l",sep="")
+  assign(paste(name,"n",sep=""),value=get(name)/(max(get(name),na.rm = TRUE)))
 }
 
 ```
@@ -50,9 +56,9 @@ for (i in 1:20){
 Calculate the mean of temperature
 ```{r}
 varnames <- paste("T_",1:11,sep="")
-T <- unlist(T_1l, use.names=FALSE)
+T <- unlist(T_1ln, use.names=FALSE)
 for (i in 2:11){
-  T <- rbind(T,unlist(get(paste(varnames[i],"l",sep="")), use.names=FALSE))
+  T <- rbind(T,unlist(get(paste(varnames[i],"ln",sep="")), use.names=FALSE))
 }
 Tm <-colMeans(T)
 ```
@@ -75,7 +81,7 @@ M <- do.call( rbind,L)
 M <- t(M)
 
 #We take the first Zone
-data_1lu<-data_1l[49:end]
+data_1lu<-data_1ln[49:end]
 ```
 
 
@@ -86,11 +92,20 @@ library(forecast)
 library(fpp2)
 Day<-300
 data_1luts<-ts(data_1lu,frequency = 24)
-fit.nn <- nnetar(window(data_1luts,end=c(Day,24)), lambda="auto")
+fit.nn <- nnetar(window(data_1luts,end=c(Day,24)),lambda="auto")
 autoplot(forecast(fit.nn,h=7*24))+
   ylab("nnetar without xreg")+
   xlab("Time/Day")
 ```
+```{r}
+autoplot(window(data_1luts,start=c((Day-5),24),end=c((Day+7),24)))+
+  autolayer(forecast(fit.nn,h=7*24),series = "nntar")+
+  guides(colour=guide_legend(title="prediction"))+
+  ylab("Neural Network Time Series Forecasts")+
+  xlab("Time/Day")
+```
+
+
 
 Neural Network Time Series Forecasts with external regressors
 
@@ -107,9 +122,9 @@ autoplot(forecast(fit.nnx,h=7*24,xreg=M[(24*Day):(24*(Day+7)),]))+
 
 autoplot(window(data_1luts,start=c((Day-5),24),end=c((Day+7),24)))+
   autolayer(forecast(fit.nnx,h=7*24,xreg=M[(24*Day):(24*(Day+7)),]),series = "nntar_xreg")+
-  autolayer(forecast(fit.nn,h=7*24),series = "nntar")+
+#  autolayer(forecast(fit.nn,h=7*24),series = "nntar")+
   guides(colour=guide_legend(title="prediction"))+
-  ylab("nnetar")+
+  ylab("Neural Network Time Series Forecasts")+
   xlab("Time/Day")
 ```
 
