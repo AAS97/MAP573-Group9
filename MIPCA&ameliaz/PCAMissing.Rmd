@@ -27,7 +27,7 @@ opts_chunk$set(warning = FALSE,
 
 # Lecture Questions
 
-__(Q1)__ When you suggest methods to deal with missing values to users, the recurrent question is “What is the percentage of missing values which is acceptable in my data set? Is 50% too much but 20% OK?” What is your answer to this question?
+__(Q1)__ When you suggest methods to deal with missing values to users, the recurrent question is “What is the percentage of missing values which is acceptable in my data set? Is 50% too much but 20% OK?�? What is your answer to this question?
 
 __(Q2)__ Explain the aims of multiple imputation in comparison to single imputation.
 
@@ -78,8 +78,7 @@ will therefore perform regression with missing values via multiple imputation.
 
 Importe the data and keep only the continuous variables.
 ```{r data}
-setwd("E:/ETUDE/EP/MAP573/Lab-20190924")
-don <-read.csv("E:/ETUDE/EP/MAP573/Projet/global-energy-forecasting-competition-2012-load-forecasting/Load_history(1).csv")
+don <-read.csv("D:/course/grade four/MAP573 DA/MAP573-Group9/Data/Load_History.csv")
 head(don)
 ```
 
@@ -183,8 +182,9 @@ The function MIPCA gives as output the data set imputed by the iterative PCA alg
 those for the imputePCA function.
 ```{r}
 library(dplyr)
-res.MIPCA <- read.csv("E:/ETUDE/EP/MAP573/Projet/MIPCAres.csv")
-res.amelia <- read.csv("E:/ETUDE/EP/MAP573/Projet/ameliares.csv")
+load_history <-read.csv("D:/course/grade four/MAP573 DA/MAP573-Group9/Data/Load_History.csv")
+res.MIPCA <- read.csv("D:/course/grade four/MAP573 DA/MAP573-Group9/MIPCA&ameliaz/MIPCAres.csv")
+res.amelia <- read.csv("D:/course/grade four/MAP573 DA/MAP573-Group9/MIPCA&ameliaz/ameliares.csv")
 
 MIPCA_1 <- filter(res.MIPCA,zone_id == 1)[2:28]
 MIPCA_1l <- as.vector(t(MIPCA_1[,4:27]))
@@ -216,20 +216,17 @@ I've tried to use directly the PCA on raw data and compare the result of zone 1 
 
 
 ```{r}
-res.MIPCA.z1 <- MIPCA(data_1, ncp = 2, nboot = 100)
-res.MIPCA.z1<-res.MIPCA.z1$res.imputePCA
-write.csv(res.MIPCA.z1,file="MIPCAresz1.csv",row.names=F,col.names=T)
-res.MIPCA.z1 <- read.csv("E:/ETUDE/EP/MAP573/Projet/MIPCAresz1.csv")
+res.MIPCA.z1 <- read.csv("D:/course/grade four/MAP573 DA/MAP573-Group9/MIPCA&ameliaz/MIPCAresz1.csv")
 
 
 MIPCA1_1l <- as.vector(t(res.MIPCA.z1[,4:27]))
-plot(MIPCA1_1l[(10320-240):(10320+240)],type="l")
+plot(MIPCA1_1l[(10320-240):(10320+240)],type="l", colorRampPalette("blue"))
 ```
  The result looks fucking good....
 ```{r}
 res.amelia.z1 <- amelia(data_1, m = 5)
 write.csv(res.amelia.z1$imputations$imp1,file="ameliaz1res.csv",row.names=F,col.names=T)
-res.amelia.z1 <- read.csv("E:/ETUDE/EP/MAP573/Projet/ameliaz1res.csv")
+res.amelia.z1 <- read.csv("D:/course/grade four/MAP573 DA/MAP573-Group9/MIPCA&ameliaz/ameliaz1res.csv")
 
 amelia1_1l <- as.vector(t(res.amelia.z1[,4:27]))
 plot(amelia1_1l[(10320-240):(10320+240)],type="l")
