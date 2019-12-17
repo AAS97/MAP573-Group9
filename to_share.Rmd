@@ -1,0 +1,394 @@
+---
+title: "to_share"
+author: "Victor Bossard"
+date: "16/12/2019"
+output: html_document
+---
+
+```{r data loading}
+#all zones load
+load_all <- read.csv("C:\\Users\\PC_victor\\Documents\\X\\MAP573\\Projet\\inline_all_zone_and_sum.csv")
+load_all <- load_all[,2:24]
+
+#all temperature record
+ load_temp <- read.csv("C:\\Users\\PC_victor\\Documents\\X\\MAP573\\Projet\\inline_all(1).csv")
+load_temp <- load_temp[,]
+
+
+#add nice date information to our data
+library(lubridate)
+load_all$Date <- ymd_hm(paste(load_all$datetime, load_all$time))
+clean_all <- data.frame(load_all$Date,load_all[,3:23])
+colnames(clean_all)[colnames(clean_all) == "load_all.Date"] <- "Date"
+
+
+#creates a validation set (a week) and trainning set
+validation <- clean_all[39247:39414,] #! beware of Nan values at the end of load_all
+training <- clean_all[0:39246,]
+validation_temp <- load_temp[39247:39414,2:13]
+training_temp <- load_temp[0:39246,2:13]
+
+#plot the load, spot missing values
+library(ggplot2)
+ggplot(data = training, aes (x = Date, y = X21))+geom_line(color = "#00AFBB",size = 0.2)
+
+
+```
+
+```{r completing data}
+
+#for each missing row in the load, we find previous week values
+missing_idx <- which(is.na(training),arr.ind = TRUE)[,1]
+doublons <- which(duplicated(missing_idx))
+missing_idx <- missing_idx[-doublons]
+training_full <- training
+
+#completing with naive method
+for(i in missing_idx){
+  training_full[i,2:22] = training[i-24*7,2:22] 
+}
+
+#temperature file has no missing values.
+
+#plot full training set
+library(ggplot2)
+ggplot(data = training_full, aes (x = Date, y = X21))+geom_line(color = "#00AFBB",size = 0.2)
+
+```
+
+```{r  determine seasonalities}
+
+#periodogram
+library(TSA)
+perio <- periodogram(training_full$X21)
+
+dd = data.frame(freq = perio$freq , spec = perio$spec)
+order = dd[order(-dd$spec),]
+top = head(order, 10)
+top
+1/top$freq
+#there is a very big seasonality of frequence 4374 and an other one of frequence 24(half the power) then 12 (a sixth)
+
+#acf and pacf
+library(forecast)
+ggAcf(training_full$X21, lag = 10000)
+pacf(training_full$X21)
+
+#what about forecasting with previous week values ?
+ggAcf(training_full$X21, lag = 7*24) 
+
+#shorter training set to focus on last month correlation
+y = 1/12
+start = length(training_full$X21)-round(y*365*24)
+short = training_full[start:length(training_full$X21),]
+ggAcf(short$X21, lag = 7*24)
+
+#volatility of hourly loads over the last month
+hour <- as.factor(format(short$Date, '%H'))
+boxplot(short$X21~hour,col="lightblue",pch=20,cex=0.5)
+
+```
+
+```{r decomposition from stl}
+
+#creates time series according to interesting frequencies
+#you can play with 
+library(forecast)
+daily_f = 24
+daily.ts = ts(training_full$X21, frequency = daily_f)
+h_annual_f = 182*24
+h_annual.ts = ts(training_full$X21, frequency = h_annual_f)
+annual_f= 365*24
+annual.ts = ts(training_full$X21, frequency = annual_f)
+
+#different msts to see decomposition after stl
+#you can play with it
+data_1s.msts = msts(training_full$X21, seasonal.periods = c(24))
+data_2s.msts = msts(training_full$X21, seasonal.periods = c(24,4368))
+data_3s.msts = msts(training_full$X21, seasonal.periods = c(12,24,4368))
+data_3bs.msts = msts(training_full$X21, seasonal.periods = c(24,4374,8765))
+
+data_1s.msts %>% mstl() %>% autoplot()
+data_2s.msts %>% mstl() %>% autoplot()
+data_3s.msts %>% mstl() %>% autoplot() 
+data_4s.msts %>% mstl() %>% autoplot()
+
+```
+
+```{r stlf forecasting and mix}
+
+library(ggplot2)
+#plot forecast of daily ts
+fc.daily = stlf(daily.ts,h = 7*24, method = "arima")
+autoplot(fc.daily, include = 2*7*24)
+accuracy(fc.daily,validation$X21)
+daily.ts %>% mstl() %>% autoplot()
+
+#plot forecast of h_annual ts
+fc.h_annual = stlf(h_annual.ts, h = 7*24, method = "arima")
+autoplot(fc.h_annual, include = 2*7*24)
+accuracy(fc.h_annual,validation$X21)
+h_annual.ts %>% mstl() %>% autoplot()
+
+#plot forecast of annual ts
+fc.annual = stlf(annual.ts, h = 24*7, method = "arima")
+autoplot(fc.annual,include = 2*7*24)
+accuracy(fc.annual, validation$X21)
+annual.ts %>% mstl() %>% autoplot()
+
+#you can see different results depending on the frequency attribute
+#you can see information lost in the trend
+
+
+#here a forecast that will work with every ts our msts object we created
+#change first attribute in stlf
+#try different frequency in the time series including some with non integer multiple of 24
+forecast = stlf(data_1s.msts, h = 168, method = 'arima')
+f.mean = ts(forecast$mean, frequency = 1)
+real_data = ts(validation$X21, frequency = 1)
+autoplot(real_data)+autolayer(f.mean)
+accuracy(forecast, validation$X21)
+
+```
+```{r mix results}
+
+#sometimes, good forecast are obtained by mixing forecasts
+#let's mix them
+fc.daily_1 = ts(fc.daily$mean, frequency = 1)
+fc.annual_1 = ts(fc.annual$mean, frequency = 1)
+fc.h_annual_1 = ts(fc.h_annual$mean, frequency = 1)
+
+sum = fc.annual_1
+
+#computes the mean of three forecasting
+for (i in 1:168){
+  sum[i] = (fc.daily_1[i]+fc.h_annual_1[i]+fc.annual_1[i])/3
+}
+
+
+val <- ts(validation$X21, frequency = 1)
+autoplot(window(val)) + autolayer(sum)
+accuracy(sum,validation$X21)
+#pretty good accuracy though
+
+
+mstl.daily = mstl(ts(fc.daily_1, frequency = 24))
+autoplot(mstl.daily)
+autoplot(mstl.daily[,1])+autolayer(mstl.daily[,2])+autolayer(mstl.daily[,3])+autolayer(mstl.daily[,4])
+
+
+```
+
+```{r ARIMA cross validation window size, eval=FALSE, include=FALSE}
+#here I tried to find the best window size, to avoid overfitting and to have the quickest results
+
+n_test = 8
+library(forecast)
+
+mape = matrix(NA,4,n_test)
+
+#loop over tests
+for(n in 0:(n_test-1)){
+  
+  #8 test, every test shifted by one month
+  start_t = length(training_full$X21)-40*7*24-n*(4*7)*24
+  end_t = start_t + 40*7*24
+  
+  #loop over window size
+  for(w in 0:3){
+    #4 window size, 10, 8,6,4 months
+    start_t = start_t + w*(2*4*7)*24
+    
+    t_set = training_full[start_t:end_t,]
+    v_set = training_full[(end_t+1):(end_t+168),]
+
+    #daily seasonality
+    daily.ts <- ts( t_set$X21, start = 1, frequency = 24)
+
+    fit <- auto.arima(daily.ts, trace = FALSE)
+    arima.fc = forecast(fit, h = 168)
+    
+    mape[(w+1),(n+1)] = accuracy(arima.fc, v_set$X21)[10]
+  }
+}
+mape
+means = rowMeans(mape[,2:8])
+means
+#mean MAPE errors depending on the window length
+
+#now visualize your result with your window
+w_size = 6 #months
+start_t = length(training_full$X21)-window_size*4*7*24
+end_t = length(training_full$X21)
+
+fit <- auto.arima(daily.ts, trace = FALSE)
+arima.fc = forecast(fit, h = 168)
+
+arima.mean = ts(arima.fc$mean, frequency = 1)
+real_data = ts(validation$X21, frequency = 1)
+autoplot(real_data)+autolayer(arima.mean)
+
+
+```
+
+```{r ARIMA with regressor, eval=FALSE, include=FALSE}
+
+#sanity replacement of all previous time series
+#shorter training set to reduce computation time you can play with it!
+s = 26 #nmb of weeks
+start = length(training_full$X21)-round(s*7*24)
+short = training_full[start:length(training_full$X21),]
+short_t = training_t_full[start:length(training_full$X21),]
+
+#annual season
+annual.ts <- ts ( short$X21, start = 1, frequency = 24*7*52)
+autoplot(annual.ts)
+temp_a.ts <- ts( short_t$Mean, start = 1, frequency = 24*7*52)
+autoplot(temp_a.ts)
+
+#h_yearly season
+h_annual.ts <- ts(short$X21, start = 1, frequency = 24*182)
+
+#daily seasonality
+daily.ts <- ts( short$X21, start = 1, frequency = 24) 
+autoplot(daily.ts)
+
+
+#ARIMA tests
+
+#working with a frequency = 24 ts,a simple auto arima forecast without fourier
+library(forecast)
+fit <- auto.arima(daily.ts, trace = TRUE)
+arima.fc = forecast(fit, h = 168)
+
+arima.mean = ts(arima.fc$mean, frequency = 1)
+real_data = ts(validation$X21, frequency = 1)
+autoplot(real_data)+autolayer(arima.mean)
+accuracy(arima.fc, validation$X21)
+
+
+#find the best fourier regressor complexity level with daily season
+#!!! it takes lots of time
+best_K=1
+AICC = 10000000
+for (K in 1:12){
+
+  fit <- auto.arima(daily.ts, xreg = fourier(daily.ts, K = K),seasonal = FALSE)
+  if(fit$aicc<AICC){
+    best_K = K
+    AICC  =fit$aicc
+  }
+}
+best_K
+
+#K = 5 #for instance
+#fit <- auto.arima(daily.ts, xreg = fourier(daily.ts, K = K),seasonal = FALSE)
+
+#check accuracy of this model with fourier 
+fc_xreg = forecast(fit, xreg = fourier(daily.ts, K=best_K, h = 168))
+arima_xreg.mean = ts(fc_xreg$mean, frequency = 1)
+autoplot(real_data)+autolayer(arima_xreg.mean)
+accuracy(fc_xreg, validation$X21)
+
+
+
+#fourier with annual time series (reminder it was impossible without xreg)
+data.msts = msts(short$X21, seasonal.periods = c(24,365*24))
+
+#you can change parametres in K (nmb of fourier terms for each season)
+fit <- auto.arima(data.msts, xreg = fourier(data.msts, K = c(12,5)),seasonal = FALSE)
+fc_xreg = forecast(fit, xreg = fourier(data.msts, K=c(12,5), h = 168))
+
+arima_xreg.mean = ts(fc_xreg$mean, frequency = 1)
+autoplot(real_data)+autolayer(arima_xreg.mean)
+accuracy(fc_xreg, validation$X21) 
+
+#else with h_annual...
+fit <- auto.arima(h_annual.ts, xreg = fourier(h_annual.ts, K = 182),seasonal = FALSE)
+fc_xreg = forecast(fit, xreg = fourier(h_annual.ts, K=182, h = 168))
+
+arima_xreg.mean = ts(fc_xreg$mean, frequency = 1)
+autoplot(real_data)+autolayer(arima_xreg.mean)
+accuracy(fc_xreg, validation$X21) 
+
+
+````
+
+
+```{r finds best K for annual time series, eval=FALSE, include=FALSE}
+
+#one year of training at least to compute the fourier regressors of the annual seasonality 
+y = 1
+start = length(training_full$X21)-round(y*365*24)
+short = training_full[start:length(training_full$X21),]
+data_2s_short.msts = msts(training_full$X21, seasonal.periods = c(24,8760))
+data_3s_short.msts = msts(training_full$X21, seasonal.periods = c(24,4374,8760))
+
+#!!!!! this is very long...
+bestfit = list(aicc = 1000000000, i = 0, j = 0, fit = fit)
+i = 3 
+for (i in 1:3){
+  for (j in 1:3){
+    fit <- auto.arima(data_2s_short.msts, xreg = fourier(data_2s_short.msts, K = c(i,j)), seasonal = FALSE)
+    if(fit$aicc < bestfit$aicc){
+      bestfit <- list(aicc = fit$aicc, i = i , j = j , fit = fit)
+    } 
+  }
+}
+fc <- forecast(bestfit$fit, xreg = fourier(data_2s_short.msts, K=c(bestfit$i,bestfit$j), h=7*24))
+
+plot(fc, include = 2*7*24)
+accuracy(fc,validation$X21)
+
+```
+
+```{r with temperatures ?}
+
+#sanity replacement
+y = 1
+start = length(training_full$X21)-round(y*365*24)
+short_load = training_full[start:length(training_full$X21),]
+short_temp = training_t_full[start:length(training_full$X21),]
+daily.ts = ts(short_load$X21, frequency = 24)
+daily_t.ts = ts(short_temp$Mean, frequency = 24)
+
+#scatterplot
+library("car")
+scatterplot(short_temp$Mean,short_load$X21)
+
+#analyze of periodogram
+library(TSA)
+perio = periodogram(short_temp$Mean)
+dd = data.frame(freq = perio$freq , spec = perio$spec)
+order = dd[order(-dd$spec),]
+top = head(order, 5)
+top
+1/top$freq
+
+acf(short_temp$Mean, lag = 5000)
+pacf(short_temp$Mean)
+
+#stlf for temperature (need it as a regressor in arima)
+library(forecast)
+temp_d.ts = ts(training_t_full$Mean, frequency = 24)
+fc.temp_d<- stlf(temp_d.ts, h = 7*24, method = "arima")
+autoplot(fc.temp_d, include = 2*7*24)
+
+
+fc.temp_d_1 = ts(fc.temp_d$mean, frequency = 1)
+
+#accuracy of the temperature forecast
+autoplot(ts(validation_temp$Mean, frequency = 24))
+accuracy(fc.temp_d$mean,validation_temp$Mean)
+
+
+
+#use temperature as external regressor
+fit <- auto.arima(daily.ts, xreg = short_temp$Mean, trace = TRUE, seasonal = FALSE)
+fc <- forecast(fit, xreg = sum/2, h = 7*24)
+plot(fc, include = 2*7*24)
+accuracy(fc,validation$X21)
+
+```
+
+

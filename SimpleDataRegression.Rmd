@@ -9,17 +9,301 @@ Date : 22/10/19
 
 Load data
 ```{r}
-zone1 <- read.csv(file="./data/processed/zoned/zone1.csv", header = TRUE, dec =".", colClasses=c("Date",rep("numeric",25)))
 
+library(data.table)
+
+library(dplyr)
+
+library(formattable)
+
+library(tidyr)
+
+library(rlist)
+load_all <- read.csv("./data/processed/inline/inline_all_zone_and_sum.csv")
+load_all <- load_all[,2:24]
+
+library(lubridate)
+
+
+load_all$Date <- ymd_hm(paste(load_all$datetime, load_all$time))
+
+clean_all <- data.frame(load_all$Date,load_all[,3:23])
+
+colnames(clean_all)[colnames(clean_all) == "load_all.Date"] <- "Date"
+
+#for each missing row, we find previous year values
+
+missing_idx <- which(is.na(clean_all),arr.ind = TRUE)[,1]
+doublons <- which(duplicated(missing_idx))
+missing_idx <- missing_idx[-doublons]
+#seasonal naive method
+for(i in missing_idx){
+  clean_all[i,2:22] = clean_all[i-24*365,2:22] 
+}
+
+missing_idx <- which(is.na(clean_all),arr.ind = TRUE)[,1]
 ```
 
 Discribe data
 ```{r}
-dim(zone1)
-summary(zone1[1:4])
+dim(clean_all)
+summary(clean_all)
+head(clean_all)
 ```
 Remarques :
-  1. Data are taken from 2004-01-01 to 2008-07-07
-  2. Total of 1650 rows
-  3. 63 of which are NA -> missing values
+1. Data are taken from 2004-01-01 to 2008-07-07
+2. Total of 1650 rows
+3. 63 of which are NA -> missing values
+```{r}
+library(forecast)
+hl <- 7*24
+#dropping the last week as it is NA
+data.X1 <- ts(clean_all$X1[1:(length(clean_all$X1)-hl)])
+data.X2 <- ts(clean_all$X2[1:(length(clean_all$X2)-hl)])
 
+#data.mean <- meanf(ts(data.X1$X1, frequency = 24*365),h=hl)
+#data.naive <- rwf(ts(data.X1$X1, frequency = 24*365),h=hl)
+#data.snaive <- snaive(ts(data.X1$X1, frequency = 24*365),h=hl)
+#data.X1$X1[1:(length(data.X1$X1)-hl)]
+fit.rwf <- rwf(data.X1[1:(length(data.X1)-hl)],h=hl)
+fit.drift <- rwf(data.X1[1:(length(data.X1)-hl)],h=hl, drift = TRUE)
+fit.meanf <- meanf(data.X1[1:(length(data.X1)-hl)],h=hl)
+fit.snaive <- snaive(ts(data.X1[1:(length(data.X1)-hl)],freq = 24),h=hl)
+
+fit.rwf.acc <- accuracy(fit.rwf, data.X1[(length(data.X1)-hl+1):length(data.X1)])
+fit.drift.acc <- accuracy(fit.drift, data.X1[(length(data.X1)-hl+1):length(data.X1)])
+fit.meanf.acc <- accuracy(fit.meanf, data.X1[(length(data.X1)-hl+1):length(data.X1)])
+fit.snaive.acc <- accuracy(fit.snaive, data.X1[(length(data.X1)-hl+1):length(data.X1)])
+
+
+`````
+Dealing with accuracies
+```{r}
+print(fit.rwf.acc)
+print(fit.drift.acc)
+print(fit.meanf.acc)
+print(fit.snaive.acc)
+
+fit.meanf.acc <- cbind(fit.meanf.acc, c(NA, NA))
+colnames(fit.meanf.acc)[7] <- "ACF1"
+print(fit.meanf.acc)
+
+data.acc <- rbind(fit.rwf.acc, fit.drift.acc, fit.meanf.acc, fit.snaive.acc)
+data.acc <- cbind(data.acc, c("rwf", "rwf", "drift", "drift", "meanf", "meanf", "snaive", "snaive"))
+colnames(data.acc)[8] <- "Forecast"
+
+data.df <- data.frame(data.acc)
+print(data.df)
+
+
+
+
+model <- c(rep("rwf" , 7), rep("drift", 7), rep("meanf" , 7) , rep("snaive" , 7) )
+metrics <- rep(c("ME" , "RMSE" ,"MAE", "MPE", "MAPE", "MASE", "ACF1") , 4)
+value <- c(fit.rwf.acc[2,], fit.drift.acc[2,], fit.meanf.acc[2,], fit.snaive.acc[2,])
+names(value) <- NULL
+data.acc <- data.frame(model,metrics,value)
+
+# Grouped
+ggplot(data.acc, aes(fill=model, y=value, x=metrics)) + 
+    geom_bar(position="dodge", stat="identity")
+
+
+```
+```{r}
+
+fit.rwf$my_mean <- ts(fit.rwf$mean, start = 39265 , end = 39432 , frequency = 1)
+fit.drift$my_mean <- ts(fit.drift$mean, start = 39265 , end = 39432 , frequency = 1)
+fit.meanf$my_mean <- ts(fit.meanf$mean, start = 39265 , end = 39432 , frequency = 1)
+fit.snaive$my_mean <- ts(fit.snaive$mean, start = 39265 , end = 39432 , frequency = 1)
+
+autoplot(window(data.X1, start= 39096,end = 39432)) +
+  autolayer(fit.meanf$my_mean, series="Mean", PI=FALSE) +
+  autolayer(fit.drift$my_mean, series="Drift", PI=FALSE) +
+  autolayer(fit.rwf$my_mean, series="Naïve", PI=FALSE) +
+  autolayer(fit.snaive$my_mean, series="Seasonal", PI=FALSE)+
+  labs(x = "Time (h)", y="Load")
+```
+
+Cross-Validation
+Impossible to run for all data
+```{r}
+cv.rwf <- tsCV(data.X1[(length(data.X1)-30*hl):(length(data.X1))], rwf, drift =TRUE, h=7*24)
+# Compute the MSE values and remove missing values
+cv.rwf.mse <- colMeans(cv.rwf^2, na.rm = T)
+
+cv.meanf <- tsCV(data.X1[(length(data.X1)-30*hl):(length(data.X1))], forecast::meanf, h=7*24)
+# Compute the MSE values and remove missing values
+cv.meanf.mse <- colMeans(cv.meanf^2, na.rm = T)
+
+cv.snaive <- tsCV(data.X1[(length(data.X1)-30*hl):(length(data.X1))], snaive, drift =TRUE, h=7*24)
+# Compute the MSE values and remove missing values
+cv.snaive.mse <- colMeans(cv.snaive^2, na.rm = T)
+
+# Plot the MSE values against the forecast horizon
+cv.rwf.df <- data.frame(h = 1:(hl), MSE= cv.rwf.mse)
+cv.meanf.df <- data.frame(h = 1:(hl), MSE = cv.meanf.mse)
+cv.snaive.df <- data.frame(h = 1:(hl), MSE = cv.snaive.mse) 
+print(cv.meanf.df)
+
+#(24*7):1680
+
+autoplot(ts((rowMeans(cv.rwf^2))[(24*7):1680], frequency = 1, start = 24*7), series = "rwf")+
+  autolayer(ts((rowMeans(cv.meanf^2))[(24*7):1680], frequency = 1, start = 24*7), series ="meanf")+
+  autolayer(ts((rowMeans(cv.snaive^2))[(24*7):1680], frequency = 1, start = 24*7), series = "snaive")+
+  labs(x="T of the last sample of training data", y="MSE")
+
+ggplot()+
+    geom_line(data = cv.rwf.df, aes(x = h, y = MSE, color ="rwf"))+
+    geom_line(data = cv.meanf.df, aes(x = h, y = MSE, color = "meanf"))+
+    geom_line(data = cv.snaive.df, aes(x = h, y = MSE, color="snaive"))
+```
+# Simple Mean Prediction
+```{r}
+mean_forecast <- meanf(load_all$X1, 7*24)
+accuracy(mean_forecast)
+```
+# Naive prédiction, previous value
+```{r}
+naive_forecast <- naive(load_all$X1, 7*24)
+accuracy(naive_forecast)
+```
+
+# Correlation between zones
+$$norm\_corr(x,y)=\dfrac{\sum_{n=0}^{n-1} x[n]*y[n]}{\sqrt{\sum_{n=0}^{n-1} x[n]^2 * \sum_{n=0}^{n-1} y[n]^2}}$$
+```{r}
+correlationTable = function(graphs) {
+  cross = matrix(nrow = length(graphs)-3, ncol = length(graphs)-3)
+  for(graph1Id in 3:length(graphs)-1){
+    graph1 = graphs[[graph1Id]]
+    print(graph1Id)
+    for(graph2Id in 3:length(graphs)-1) {
+      graph2 = graphs[[graph2Id]]
+      if(graph1Id == graph2Id){
+        break;
+      } else {
+        correlation = ccf(graph1, graph2, lag.max = 0, na.action = na.pass, plot = FALSE)
+        cross[graph1Id-2, graph2Id-2] = correlation$acf[1]
+      }
+    }
+  }
+  cross
+}
+
+graphs = load_all
+corr = correlationTable(graphs)
+#print(corr)
+
+
+# Obtenir le triangle inférieur
+get_lower_tri<-function(cormat){
+  cormat[upper.tri(cormat)] <- NA
+  return(cormat)
+}
+lower_tri <- get_lower_tri(corr)
+
+
+# Fondre la matrice de corrélation
+library(reshape2)
+melted_cormat <- melt(lower_tri, na.rm = TRUE)
+print(melted_cormat)
+# Heatmap
+library(ggplot2)
+ggplot(data = melted_cormat, aes(Var2, Var1, fill = value))+
+  geom_tile(color = "white")+
+  scale_fill_gradient2(low = "blue", high = "red", mid = "white", 
+                       midpoint = 0, limit = c(-1,1), space = "Lab",
+                       name="Pearson\nCorrelation") +
+  theme_minimal()+ 
+  labs(y= "Zone 1", x = "Zone 2")+
+  theme(axis.text.x = element_text(angle = 45, vjust = 1, 
+                                   size = 12, hjust = 1))+
+  coord_fixed()
+```
+
+
+See the revered correlated ts
+```{r}
+ts.X9 <-ts(load_all$X9[(length(load_all$X9)-24*7*30):(length(load_all$X9)-24*7*27)])
+ts.X10 <-ts(load_all$X10[(length(load_all$X10)-24*7*30):(length(load_all$X10)-24*7*27)])
+ts.X6 <-ts(load_all$X6[(length(load_all$X6)-24*7*30):(length(load_all$X6)-24*7*27)])
+ts.X12 <-ts(load_all$X12[(length(load_all$X12)-24*7*30):(length(load_all$X12)-24*7*27)])
+autoplot(ts.X9)+autolayer(ts.X10)+autolayer(ts.X6)+autolayer(ts.X12)+labs(y="load", x="time (h)")
+```
+```{r}
+ccf(load_all$X6, load_all$X12, na.action = na.pass)+
+  scale_x_continuous(breaks = seq(-40, 40, by=5))
+```
+```{r}
+VAR <- c (65.00252964, 67.95751522, 71.31060956, 74.51020723, 77.20331451,
+       79.55855226, 81.24217121, 82.48658745, 83.06384171, 82.48150083,
+       81.42869664, 80.36389915, 78.22829342, 75.3403245 , 72.16611972,
+       69.45152037, 67.57997846, 66.20915574, 65.04496667, 63.81352579,
+       63.07243765, 62.62683939, 62.30716981, 62.27874736, 63.64637688,
+       66.47395524, 69.78197102, 72.84574535, 75.52967286, 77.92393012,
+       79.73219736, 81.13714485, 81.73222267, 81.07694254, 79.96133859,
+       78.98470239, 77.00557616, 74.25213394, 71.20425812, 68.52124695,
+       66.65054883, 65.36397845, 64.33879605, 63.26135991, 62.61282595,
+       62.35853711, 62.32890085, 62.57946906, 64.17323295, 66.83558658,
+       69.8638937 , 72.83127669, 75.49221516, 77.84153758, 79.64242278,
+       80.94783556, 81.32661173, 80.67712697, 79.66774428, 78.53646844,
+       76.64229363, 73.97167769, 71.00856685, 68.39031613, 66.48310166,
+       65.21079629, 64.13731739, 63.06217743, 62.39288674, 62.19910625,
+       62.22662456, 62.66920973, 64.20971055, 66.76234453, 69.69651577,
+       72.50319864, 75.09152057, 77.36475486, 79.1546215 , 80.43679029,
+       80.91727402, 80.43450411, 79.53375494, 78.43529294, 76.55982341,
+       73.95148552, 71.04777053, 68.43086506, 66.47933219, 65.1231291 ,
+       63.99129442, 62.92573338, 62.26290088, 62.02859421, 62.05089325,
+       62.49679733, 63.97028146, 66.43060444, 69.26856971, 72.00621919,
+       74.53746265, 76.77448072, 78.56711556, 79.87255822, 80.37025972,
+       79.9417823 , 79.05877855, 77.91528086, 76.05106678, 73.4740589 ,
+       70.60332397, 67.98723996, 65.99669837, 64.60066433, 63.45953632,
+       62.4356897 , 61.79258543, 61.57512347, 61.63974566, 62.136611  ,
+       63.60276297, 65.97709388, 68.70578521, 71.37977557, 73.88103305,
+       76.10188326, 77.90437332, 79.19646705, 79.66695093, 79.25661881,
+       78.3944784 , 77.21378682, 75.3717469 , 72.85393776, 70.04864424,
+       67.4718375 , 65.48698648, 64.08568782, 62.95009859, 61.96102422,
+       61.34630355, 61.16962045, 61.29256523, 61.88188496, 63.35407143,
+       65.65824603, 68.31074237, 70.92645037, 73.38911211, 75.58132562,
+       77.3711595 , 78.6280978 , 79.08775786, 78.70876301, 77.85758932,
+       76.6624669 , 74.83549029, 72.3751646 , 69.64148062, 67.11316677,
+       65.14398926, 63.7321356 , 62.59469903, 61.63218012, 61.04408016,
+       60.88220257, 61.04619771, 61.67833766)
+
+val <- c(68.09090909, 70.27272727, 72.81818182, 75.81818182, 77.45454545,
+       79.81818182, 82.27272727, 83.63636364, 84.81818182, 85.        ,
+       84.72727273, 83.18181818, 81.45454545, 78.18181818, 73.54545455,
+       71.09090909, 68.54545455, 68.09090909, 66.63636364, 64.45454545,
+       63.45454545, 62.09090909, 61.63636364, 60.27272727, 62.72727273,
+       67.81818182, 71.90909091, 75.72727273, 77.45454545, 79.81818182,
+       81.54545455, 82.72727273, 83.09090909, 83.54545455, 84.45454545,
+       83.72727273, 82.54545455, 78.63636364, 72.54545455, 70.        ,
+       67.09090909, 65.18181818, 64.27272727, 63.09090909, 62.45454545,
+       61.63636364, 60.45454545, 60.63636364, 62.72727273, 69.36363636,
+       74.27272727, 78.72727273, 81.81818182, 83.90909091, 85.45454545,
+       86.54545455, 87.36363636, 88.        , 87.90909091, 87.18181818,
+       85.54545455, 81.81818182, 76.72727273, 73.54545455, 71.81818182,
+       70.72727273, 70.72727273, 69.36363636, 69.09090909, 68.27272727,
+       67.45454545, 67.81818182, 69.90909091, 73.63636364, 78.63636364,
+       82.72727273, 85.63636364, 88.45454545, 90.54545455, 92.18181818,
+       93.27272727, 93.72727273, 93.90909091, 93.        , 89.72727273,
+       85.90909091, 82.45454545, 79.09090909, 77.63636364, 76.45454545,
+       76.09090909, 75.18181818, 74.90909091, 73.27272727, 72.09090909,
+       72.09090909, 72.72727273, 76.81818182, 80.36363636, 84.18181818,
+       86.45454545, 88.90909091, 90.45454545, 89.18181818, 90.27272727,
+       87.27272727, 86.27272727, 84.36363636, 83.        , 80.72727273,
+       78.18181818, 76.09090909, 74.90909091, 73.81818182, 72.81818182,
+       73.09090909, 73.09090909, 72.27272727, 71.09090909, 70.72727273,
+       72.81818182, 76.36363636, 80.36363636, 83.72727273, 86.90909091,
+       88.63636364, 90.36363636, 91.36363636, 92.81818182, 93.27272727,
+       91.36363636, 89.63636364, 87.54545455, 85.27272727, 81.        ,
+       79.54545455, 78.54545455, 77.72727273, 77.45454545, 75.81818182,
+       75.36363636, 74.63636364, 74.        , 73.81818182, 74.54545455,
+       77.18181818, 79.90909091, 83.        , 84.45454545, 86.09090909,
+       86.81818182, 86.27272727, 87.45454545, 88.18181818, 87.63636364,
+       86.72727273, 84.45454545, 82.        , 77.18181818, 75.63636364,
+       73.45454545, 72.54545455, 72.09090909, 71.09090909, 70.81818182,
+       70.27272727, 70.09090909, 69.81818182)
+
+accuracy(ts(VAR, frequency = 1), ts(val, frequency=1))
+```

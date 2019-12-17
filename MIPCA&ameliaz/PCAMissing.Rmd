@@ -1,0 +1,237 @@
+---
+title: "Handling Missing Values"
+author: "Julie Josse"
+date: "24/09/2019"
+output:
+  html_document:
+    toc: true
+    toc_float: true
+    toc_depth: 4
+    css: hideOutput.css
+    includes:
+      in_header: hideOutput.script
+---
+
+
+```{r knitr-global-options, include=FALSE}
+library(knitr)
+library(rgl)
+opts_chunk$set(warning = FALSE,
+               message = FALSE, 
+               cache = TRUE, 
+               autodep = TRUE, 
+               tidy = FALSE, 
+               eval = FALSE)
+
+```
+
+# Lecture Questions
+
+__(Q1)__ When you suggest methods to deal with missing values to users, the recurrent question is “What is the percentage of missing values which is acceptable in my data set? Is 50% too much but 20% OK?” What is your answer to this question?
+
+__(Q2)__ Explain the aims of multiple imputation in comparison to single imputation.
+
+__(Q3)__ Your aim is to impute a data set (predict as precisely as possible missing values). You have 3 imputation methods available. How could you compare them? **
+
+
+# Continuous data with missing values - Regression with missing data via Multiple Imputation
+
+First of all you will need to install the following packages
+
+```{r eval=FALSE}
+install.packages("VIM")
+install.packages("naniar")
+install.packages("mice")
+install.packages("missMDA")
+install.packages("Amelia")
+install.packages("missForest")
+install.packages("FactoMineR")
+install.packages("tidyverse")
+```
+
+Air pollution is currently one of the most serious public health issues
+worldwide. Many epidemiological studies have proved the influence that some
+chemical compounds, such as sulphur dioxide (SO2), nitrogen dioxide (NO2), ozone
+(O3) can have on health. Associations set up to monitor air quality are
+active all over the world to measure the concentration of these pollutants. They
+also keep a record of meteorological conditions such as temperature, cloud
+cover, wind, etc.
+
+We have at our disposal 112 observations collected during the summer of 2001 in
+Rennes. The variables available are:
+
+* maxO3 (maximum daily ozone) 
+* maxO3v (maximum daily ozone the previous day) 
+* T12 (temperature at midday) 
+* T9 (Temp at 9am)
+* T15 (Temp at 3pm)
+* Vx12 (projection of the wind speed vector on the east-west axis at midday)
+* Vx9 and Vx15 (same at 9am and 3pm)
+* Ne9, Ne12, Ne15 Nebulosity (cloud) 
+
+Here, the final aim is to analyse the relationship between the maximum daily
+ozone (maxO3) level and the other meteorological variables. To do so we will
+perform regression to explain maxO3 in function of all the other variables. This
+data is incomplete - there are missing values. Indeed, it occurs frenquently to
+have machines that fail one day, leading to some information not recorded. We
+will therefore perform regression with missing values via multiple imputation.
+
+Importe the data and keep only the continuous variables.
+```{r data}
+setwd("E:/ETUDE/EP/MAP573/Lab-20190924")
+don <-read.csv("E:/ETUDE/EP/MAP573/Projet/global-energy-forecasting-competition-2012-load-forecasting/Load_history(1).csv")
+head(don)
+```
+
+* Load the libraries.
+```{r packages, results="hide", message=FALSE}
+library(VIM)
+library(FactoMineR)
+library(missMDA)
+```
+
+## 1) Descriptive statistics with missing values
+
+Look at: 
+```{r echo=TRUE}
+dim(na.omit(don))
+```
+
+__(Q1)__ When could it be a good idea to delete rows or columns with missing values to work with a complete data set? Could you do it here?
+
+
+First, we perfom some descriptive statistics (how many missing values? how many variables, individuals with missing values?) and try to **inspect and vizualize the pattern of missing entries and get hints on the mechanism**.  For this purpose, we use the R package **VIM** (Visualization and Imputation of Missing Values - Mathias Templ) as well as Multiple Correspondence Analysis (FactoMineR package).  You should install the package VIM, then you can check the documentation by executing
+
+```{r VIM0, eval=FALSE}
+?VIM
+```
+
+The package **naniar** can also be used. It was developped by Nick Tierney's and based on ggplot. Naniar provides principled, tidy ways to summarise, visualise, and manipulate missing data with minimal deviations from the workflows in ggplot2 and tidy data. 
+
+```{r}
+library(naniar)
+gg_miss_var(don)
+```
+
+The function VIM **aggr** calculates and represents the number of missing entries in each variable and for certain combinations of variables (which tend to be missing simultaneously).
+
+```{r VIM}
+res<-summary(aggr(don, sortVar=TRUE))$combinations
+```
+
+```{r VIM2}
+head(res[rev(order(res[,2])),])
+```
+
+We can see that the combination which is the most frequent is the one where all the variables are observed (13 values). Then, the second one is the one where T9, T12 and T15 are simultaneously missing (7 rows) (1 is missing, 0 is observed - there is a 1 for the second, third and fourth variables). The graph on the right panel represents the pattern, with blue for observed and red for missing. 
+
+The VIM function **matrixplot** creates a matrix plot in which all cells of a data matrix are visualized by rectangles. Available data is coded according to a continuous color scheme (gray scale), while missing/imputed data is visualized by a clearly distinguishable color (red). This is useful to check if there is an association between the value of a variable and the missingness of another one.
+
+```{r VIM-matrixplot}
+matrixplot(don, sortby = 2)
+#Here the variable selected is variable 2. 
+```
+
+__(Q2)__ Do you observe any associations between the missing entries ? When values are missing on a variable does it correspond to small or large values on another one ? 
+
+
+The VIM function **marginplot** creates a scatterplot with additional information on the missing values. If you plot the variables (x,y), the points with no missing values are represented as in a standard scatterplot. The points for which x (resp. y) is missing are represented in red along the y (resp. x) axis. In addition, boxplots of the x and y variables are represented along the axes with and without missing values (in red all variables x where y is missing, in blue all variables x where y is observed).
+
+## 3) Multiple imputation
+
+### Generate multiple data sets
+We perform multiple imputation either assuming 
+1) Joint Modeling (one joint probabilistic model for the variables all together) - We use the R package Amelia, which is by default consider Gaussian distribution
+2) Conditional Modeling (one model per variable) approach - We use the R package mice which by default consider one model of linear regression per variable
+3) a PCA based model - We use the R package missMDA
+
+For each approach we generate 100 imputed data sets.
+
+```{r }
+library(Amelia)
+```
+
+```{r eval=FALSE}
+?amelia
+```
+
+1)
+```{r, message = FALSE, warning=FALSE}
+res.amelia <- amelia(don, m = 5)  
+#names(res.amelia$imputations) 
+res.amelia$imputations$imp1# the first imputed data set
+write.csv(res.amelia$imputations$imp1,file="ameliares.csv",row.names=F,col.names=T)
+```
+
+3) 
+Now generate 100 imputed data sets with the MIPCA method and 2 components. Store the result in a variable called res.MIPCA.
+
+
+```{r }
+res.MIPCA <- MIPCA(don, ncp = 2, nboot = 100) # MI with PCA using 2 dimensions 
+
+```
+
+
+
+```{r }
+res.MIPCA<-res.MIPCA$res.imputePCA
+write.csv(res.MIPCA,file="MIPCAres.csv",row.names=F,col.names=T)
+```
+
+The function MIPCA gives as output the data set imputed by the iterative PCA algorithm (in res.imputePCA) and the other data sets generated by the MIPCA algorithm (in res.MI). The number of data sets generated by this algorithm is controlled by the nboot argument, equal to 100 by default. The other arguments of this function are the same as
+those for the imputePCA function.
+```{r}
+library(dplyr)
+res.MIPCA <- read.csv("E:/ETUDE/EP/MAP573/Projet/MIPCAres.csv")
+res.amelia <- read.csv("E:/ETUDE/EP/MAP573/Projet/ameliares.csv")
+
+MIPCA_1 <- filter(res.MIPCA,zone_id == 1)[2:28]
+MIPCA_1l <- as.vector(t(MIPCA_1[,4:27]))
+
+MIPCA_2 <- filter(res.MIPCA,zone_id == 2)[2:28]
+MIPCA_2l <- as.vector(t(MIPCA_2[,4:27]))
+
+amelia_1 <- filter(res.amelia,zone_id == 1)[2:28]
+amelia_1l <- as.vector(t(amelia_1[,4:27]))
+
+data_1 <- filter(load_history,zone_id == 1)[2:28]
+data_1l <- as.vector(t(data_1[,4:27]))
+```
+
+
+```{r}
+NAvalues<-which(is.na(data_1l))
+plot(data_1l[(10320-100):(10320+100)],type="l")
+plot(MIPCA_1l[(10320-240):(10320+240)],type="l")
+plot(amelia_1l[(10320-240):(10320+240)],type="l")
+```
+
+```{r}
+plot(MIPCA_2l[(10320-240):(10320+240)],type="l")
+```
+
+
+I've tried to use directly the PCA on raw data and compare the result of zone 1 and zone 2 we can find that the value varies much with different zones, so we can't apply the MIPCA directly, we have to seperate defferent zones. 
+
+
+```{r}
+res.MIPCA.z1 <- MIPCA(data_1, ncp = 2, nboot = 100)
+res.MIPCA.z1<-res.MIPCA.z1$res.imputePCA
+write.csv(res.MIPCA.z1,file="MIPCAresz1.csv",row.names=F,col.names=T)
+res.MIPCA.z1 <- read.csv("E:/ETUDE/EP/MAP573/Projet/MIPCAresz1.csv")
+
+
+MIPCA1_1l <- as.vector(t(res.MIPCA.z1[,4:27]))
+plot(MIPCA1_1l[(10320-240):(10320+240)],type="l")
+```
+ The result looks fucking good....
+```{r}
+res.amelia.z1 <- amelia(data_1, m = 5)
+write.csv(res.amelia.z1$imputations$imp1,file="ameliaz1res.csv",row.names=F,col.names=T)
+res.amelia.z1 <- read.csv("E:/ETUDE/EP/MAP573/Projet/ameliaz1res.csv")
+
+amelia1_1l <- as.vector(t(res.amelia.z1[,4:27]))
+plot(amelia1_1l[(10320-240):(10320+240)],type="l")
+```
+
